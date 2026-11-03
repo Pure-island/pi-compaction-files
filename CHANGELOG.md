@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0]
+
+### Added
+- Optional `compactModel` (`provider/model`) selects a dedicated summarizer without
+  changing the conversation model. Model IDs may include a namespace slash.
+- Effective model and thinking-level logging, plus `fileListIndex.compactModel` in
+  persisted compaction details.
+- Isolated full-chain RPC checks using real Pi and local HTTP providers.
+
+### Changed
+- Requires Pi 1.4.0 or newer. Uses provider-neutral `streamSimple` so `compactThinking`
+  reaches the selected provider.
+- Output budgets follow the selected model's `maxTokens`, matching current Pi. The
+  hard cap uses a request-local model copy rather than mutating `reserveTokens`.
+- This fork installs from `Pure-island/pi-compaction-files`; it is not published to npm.
+
+### Fixed
+- Windows drive paths and backslashes are normalized before file filtering and archive
+  desensitization; self-check discovery handles Windows PATH and npm install roots.
+
+Model selection/authentication/request failures warn and leave compaction to Pi's
+current-model native path. File-list rewriting remains in the same successful hook.
+
 ## [0.3.1] - 2026-10-20
 
 ### Changed

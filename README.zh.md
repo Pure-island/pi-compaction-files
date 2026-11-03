@@ -1,5 +1,8 @@
 # pi-compaction-files
 
+基于 [yeyudeH/pi-compaction-files](https://github.com/yeyudeH/pi-compaction-files) 的 fork，
+在同一次原生压缩流程中增加指定压缩模型的能力。下方文件清单测量来自上游，并非本 fork 的新基准。
+
 **Pi 每次压缩都会在摘要末尾追加两个没有上限的文件清单，并且永久继承。这个扩展把它们封顶，
 于是每轮的固定成本不再随压缩次数增长。**
 
@@ -24,21 +27,16 @@ Pi 官方文档把这种增长写成了预期行为（`docs/compaction.md` → �
 
 ## 安装
 
-```bash
-pi install npm:@yeyudeh/pi-compaction-files
-
-# 或直接从 git —— 这种跟的是 main 分支
-pi install git:github.com/yeyudeH/pi-compaction-files
-```
-
-先试一次不安装：
+需要 **Pi 1.4.0 或更新版本**。从 GitHub 安装本 fork：
 
 ```bash
-pi -e npm:@yeyudeh/pi-compaction-files
+pi install git:github.com/Pure-island/pi-compaction-files@v0.4.0
 ```
 
-两种都在 Pi 0.37 上实测过：扩展加载，stderr 打 `self-check ok`。
-git 形式跟 `main`；要固定在某个版本用 `pi install git:github.com/yeyudeH/pi-compaction-files#v0.2.0`。
+去掉 `@v0.4.0` 可跟随默认分支更新。本 fork 未发布到 npm。
+启用前移除已安装的上游版本或 `pi-compaction-model`，避免多个扩展同时接管压缩。
+
+安装后重启 Pi，或执行 `/reload`。
 
 确认已加载：
 
@@ -65,7 +63,7 @@ pi-self-check=ok dist=…/@earendil-works/pi-coding-agent/dist
 
 ### 1. 从源头缩短清单
 
-`session_before_compact` 调用 Pi 自己的 `compact()`（摘要文本与 Pi 原生完全一致），
+`session_before_compact` 使用选定模型、`compactThinking` 和输出预算调用 Pi 自己的 `compact()`，
 然后把文件清单块换短。因为结果来自 hook，Pi 会记 `fromHook: true` 并**停止继承上一次的清单**
 —— 雪球在源头断掉，而不是每轮重新修剪。
 
@@ -117,6 +115,7 @@ Pi 会把完整清单写进 compaction 条目的 `details`（不渲染进上下�
   "dropMissing": true,
   "indexRecent": 12,
   "archiveSensitive": false,
+  "compactModel": null,
   "compactThinking": "medium",
   "outputBudgetRatio": 0.8,
   "outputHardCapRatio": 0.9,
@@ -140,9 +139,10 @@ Pi 会把完整清单写进 compaction 条目的 `details`（不渲染进上下�
 | `dropMissing` | `true` | 丢掉已不存在的路径 |
 | `archiveSensitive` | `false` | `false` = 敏感形态路径连磁盘存档也剔掉 |
 | `excludePatterns` | 见上 | 命中即整条丢弃 |
+| `compactModel` | `null` | Pi 已知的精确 `provider/model`。未设置、`null` 或空字符串使用当前对话模型；模型 ID 本身可含 `/` |
 | `compactThinking` | `medium` | 压缩请求自己用的思考强度，不再沿用会话级别 |
-| `outputBudgetRatio` | `0.8` | 压缩请求的**总输出**（思考 + 摘要）应落在 Pi 自身上限（`0.8 × reserveTokens`）的这个比例内。`0` 表示不限制 |
-| `outputHardCapRatio` | `0.9` | 把推理服务对这次请求强制执行的输出上限压到 Pi 上限的这个比例，思考+摘要再也撞不到天花板。`0` 表示不动 Pi 的原上限 |
+| `outputBudgetRatio` | `0.8` | 压缩请求的**总输出**（思考 + 摘要）应落在选定模型输出上限（`model.maxTokens`）的这个比例内。`0` 表示不限制 |
+| `outputHardCapRatio` | `0.9` | 将请求级模型输出上限设为选定模型上限的这个比例，同时作用于 registry 和原生 completion 路径，不改会话配置。`0` 表示不缩减模型原上限 |
 | `retryOnOverflow` | `true` | 实际用量超过预算时，用更严的指令 + 降一档思考重做一次，取更省的那次 |
 | `summaryMaxTokens` | `0` | 可选的第二道限制，只管摘要正文（字符数/4）。`0` 表示关闭；主控是 `outputBudgetRatio` |
 | `summaryHardTrim` | `false` | 清单收到最紧之后摘要还是超上限时，是否连正文一起裁掉（默认只收紧清单并告警） |
@@ -150,6 +150,30 @@ Pi 会把完整清单写进 compaction 条目的 `details`（不渲染进上下�
 | `piDistDir` | 自动 | 自检找不到 Pi `dist/` 时才需要；也支持环境变量 `PI_CODING_AGENT_DIST` |
 
 ---
+
+### 指定压缩模型
+
+核对基线：[`cdbfb9d91419594e32d40d686c4b286e0410543e`](https://github.com/Pure-island/pi-compaction-files/commit/cdbfb9d91419594e32d40d686c4b286e0410543e)。
+核对范围：`extensions/index.ts` 中的模型选择和请求级输出预算。
+
+在 `~/.pi/pi-compaction-files.json` 中配置，例如：
+
+```json
+{
+  "compactModel": "openai-codex/gpt-6-luna",
+  "compactThinking": "medium"
+}
+```
+
+使用 Pi 注册列表中可用的模型。只改变摘要请求，不切换对话模型，也不改变压缩触发点或保留消息的
+选择。手动、阈值和溢出恢复压缩使用同一配置，`/compact` 的附加指令仍生效。普通非分段压缩生成
+一次摘要；Pi 原生 split-turn 流程可能分别生成历史摘要和当前轮前缀摘要。
+
+`/filelist` 显示配置模型；每次压缩日志显示实际模型和思考强度，
+`details.fileListIndex.compactModel` 记录实际使用的模型。模型格式无效、模型不存在、鉴权错误或
+请求失败时，会告警并交还 Pi，以当前对话模型执行原生压缩。此回退不会通过本钩子裁剪持久化摘要，
+但后续请求中的 `context` 钩子仍会缩短文件清单。当前对话模型也需要有效凭据，因为 Pi 会先解析
+它的鉴权，再调用压缩钩子。
 
 ## 效果
 
@@ -193,16 +217,17 @@ Pi 会把完整清单写进 compaction 条目的 `details`（不渲染进上下�
 
 ## 与其他上下文类扩展共存
 
-Pi 的上下文类扩展不少：`pi-zip`、`billion-context`、`context-mode`、`pi-cache-optimizer`、
-`magic-context`、`pi-smart-compact`、`pi-hot-compact`、`pi-context-prune`。
-**它们都不碰压缩的文件清单**，而本扩展也不碰别的东西，所以是正交的。
+本 fork 接管原生压缩，也通过 `context` 钩子缩短文件清单。其他阶段的扩展可以共存，
+但应确认各自的钩子职责。
 
 `pi-zip` 从它那边也给出了同样结论：
 
 > An extension that only writes Pi's compaction summaries (a `session_before_compact`
 > handler) does not pause pi-zip.
 
-如果同时装两个都改写压缩摘要的扩展，结果不可预测 —— 二选一。
+不要同时启用本 fork、`pi-compaction-model`、上游版本或其他为同一事件返回
+`session_before_compact` 结果的扩展。Pi 会独立调用各处理器并采用最后一个覆盖结果，
+不会把前一个摘要传给后一个继续处理。
 
 ---
 
@@ -211,7 +236,7 @@ Pi 的上下文类扩展不少：`pi-zip`、`billion-context`、`context-mode`�
 - **绝不 cancel 压缩。** 任何出错都返回 `{}`，Pi 走原生路径，行为不受影响。
 - **绝不写你的会话文件。** `context` 钩子每轮在内存里改；`session_before_compact` 只是返回
   一个 hook 结果，由 Pi 按正常方式持久化。
-- **不联网。** 没有遥测、没有 fetch、没有统计上报。
+- **没有遥测。** 模型请求通过 Pi 已配置的 provider 发出，不增加分析上报或其他网络请求。
 - **卸载即完全回滚。** 旧摘要在会话文件里原样保留。
 - **失败预算。** 连续 2 次失败后本进程停用，交回 Pi。
 
@@ -236,13 +261,25 @@ Pi 的上下文类扩展不少：`pi-zip`、`billion-context`、`context-mode`�
 
 ```bash
 npm test              # 纯逻辑，不需要会话数据
-npm run test:plugin   # 对着 mock 的 Pi 跑完整钩子链（不调模型）
+npm run test:plugin   # 已有 mock Pi 钩子链
+npm run test:integration # 真实 Pi RPC + 本地 HTTP provider，不调用付费模型
 npm run privacy       # 防止把个人路径 / 会话 ID 发出去
-npm run check         # 上面三个全跑
+npm run check         # 隐私检查 + 已有离线 harness
 ```
 
 `test/plugin-load.mjs` 用 mock 的 `compact()` 和一次性 `HOME` 加载扩展，
 所以既不读开发者自己的配置，也不调模型。用 `PLUGIN_PKG=/path/to/pkg` 可以指向另一份副本测。
+
+`test:integration` 需要已安装 Pi 依赖，或将 `PI_CODING_AGENT_CLI` 指向 Pi 的 `dist/cli.js`。
+全局 npm 安装时，可在 PowerShell 中运行：
+
+```powershell
+$env:PI_CODING_AGENT_CLI = Join-Path (npm root -g) '@earendil-works/pi-coding-agent/dist/cli.js'
+npm run test:integration
+```
+
+它覆盖模型与 provider 路由、鉴权、思考强度、输出限额、Windows 路径裁剪、摘要持久化和失败回退。
+测试创建并清理隔离环境，不读取用户配置或会话。
 
 想在自己机器上量一遍，见 [docs/verify-it-works.md](./docs/verify-it-works.md)。
 

@@ -1,5 +1,9 @@
 # pi-compaction-files
 
+Fork of [yeyudeH/pi-compaction-files](https://github.com/yeyudeH/pi-compaction-files),
+adding an optional dedicated compaction model in the same native summarization flow.
+The file-list measurements below are from upstream, not new fork benchmarks.
+
 **Pi's compaction appends two unbounded file lists to every summary and re-inherits them
 forever. This extension caps them, and the cost per turn stops growing.**
 
@@ -27,22 +31,17 @@ That last sentence is the documented contract this extension uses. It is not a m
 
 ## Install
 
-```bash
-pi install npm:@yeyudeh/pi-compaction-files
-
-# or straight from git — this one tracks `main`
-pi install git:github.com/yeyudeH/pi-compaction-files
-```
-
-Try it for a single run without installing:
+Requires Pi **1.4.0 or newer**. Install this fork from GitHub:
 
 ```bash
-pi -e npm:@yeyudeh/pi-compaction-files
+pi install git:github.com/Pure-island/pi-compaction-files@v0.4.0
 ```
 
-Both forms were verified end to end on Pi 0.37: the extension loads and logs
-`self-check ok` on stderr. Pin a git release with
-`pi install git:github.com/yeyudeH/pi-compaction-files#v0.2.0`.
+For updates from the default branch, omit `@v0.4.0`. This fork is not published to npm.
+Remove any installed upstream copy or `pi-compaction-model` before enabling this fork;
+only one extension should own `session_before_compact`.
+
+Restart Pi or run `/reload` after installation.
 
 Then check it is loaded:
 
@@ -76,8 +75,8 @@ shrinks immediately.
 
 ### 1. Shortens the lists at the source
 
-`session_before_compact` calls Pi's own `compact()` — so the summary text is exactly what
-Pi would have produced — and then replaces the file blocks with shorter ones. Because the
+`session_before_compact` calls Pi's own `compact()` with the selected model,
+`compactThinking`, and output budget, then replaces the file blocks with shorter ones. Because the
 result comes from a hook, Pi records `fromHook: true` and stops inheriting the previous
 lists. The snowball breaks at the source instead of being re-trimmed every turn.
 
@@ -135,6 +134,7 @@ Optional file: `~/.pi/pi-compaction-files.json`
   "dropMissing": true,
   "indexRecent": 12,
   "archiveSensitive": false,
+  "compactModel": null,
   "compactThinking": "medium",
   "outputBudgetRatio": 0.8,
   "outputHardCapRatio": 0.9,
@@ -158,9 +158,10 @@ Optional file: `~/.pi/pi-compaction-files.json`
 | `dropMissing` | `true` | Drop paths that no longer exist. |
 | `archiveSensitive` | `false` | `false` also strips sensitive-shaped paths from the on-disk `details` archive. |
 | `excludePatterns` | see above | Substrings whose paths are dropped entirely. |
+| `compactModel` | `null` | Optional exact `provider/model` known to Pi; omitted, `null`, or an empty string uses the active conversation model. Model IDs may contain `/`. |
 | `compactThinking` | `medium` | Thinking level for the summarisation request itself instead of the session's. |
-| `outputBudgetRatio` | `0.8` | Share of Pi's own output ceiling (`0.8 * reserveTokens`) that the whole summarisation reply — reasoning **plus** summary — should fit inside. `0` disables. |
-| `outputHardCapRatio` | `0.9` | Lower the ceiling the inference server enforces for this request to this share of Pi's cap, so reasoning+summary cannot reach it. `0` leaves Pi's ceiling untouched. |
+| `outputBudgetRatio` | `0.8` | Share of the selected model's output ceiling (`model.maxTokens`) that the whole summarisation reply — reasoning **plus** summary — should fit inside. `0` disables. |
+| `outputHardCapRatio` | `0.9` | Set a request-local model output ceiling to this share of the selected model's limit. Applies to both registry and native completion paths; does not change session settings. `0` leaves the model's ceiling untouched. |
 | `retryOnOverflow` | `true` | If the reply used more than that budget, redo it once with tighter instructions and one step lower thinking; keep whichever was cheaper. |
 | `summaryMaxTokens` | `0` | Optional second ceiling on the summary text alone (chars/4). `0` = off; `outputBudgetRatio` is the primary control. |
 | `summaryHardTrim` | `false` | When the summary is still over the ceiling after the lists are tightened, cut the prose too (default: tighten lists and warn). |
@@ -168,6 +169,34 @@ Optional file: `~/.pi/pi-compaction-files.json`
 | `piDistDir` | auto | Only needed if the self-check cannot find Pi's `dist/`. `PI_CODING_AGENT_DIST` works too. |
 
 ---
+
+### Dedicated compaction model
+
+Implementation baseline: [`cdbfb9d91419594e32d40d686c4b286e0410543e`](https://github.com/Pure-island/pi-compaction-files/commit/cdbfb9d91419594e32d40d686c4b286e0410543e).
+Scope: model selection and request-level output budgets in `extensions/index.ts`.
+
+In `~/.pi/pi-compaction-files.json`, set for example:
+
+```json
+{
+  "compactModel": "openai-codex/gpt-6-luna",
+  "compactThinking": "medium"
+}
+```
+
+Use a model available in your Pi registry. This changes summarization only, not the
+conversation model, compaction trigger, or retained-message selection. Manual,
+threshold, and overflow compactions use the same configuration. `/compact` focus
+instructions still apply. Normal non-split compaction generates one summary; Pi's
+native split-turn flow can generate separate history and turn-prefix summaries.
+
+`/filelist` shows the configured model; each compaction logs the effective model and
+thinking level, and `details.fileListIndex.compactModel` records the model used.
+Invalid references, unknown models, authentication errors, or request failures log a
+warning and return control to Pi's native current-model compaction. That fallback does
+not trim the persisted summary through this hook; the `context` handler still trims
+file blocks when the summary is sent on a later turn. The active model must also have
+working credentials because Pi resolves them before invoking this hook.
 
 ## Results
 
@@ -218,18 +247,17 @@ Full method and caveats: [docs/benchmark.md](./docs/benchmark.md).
 
 ## Coexistence with other context extensions
 
-There are several excellent context-management packages for Pi — `pi-zip`,
-`billion-context`, `context-mode`, `pi-cache-optimizer`, `magic-context`,
-`pi-smart-compact`, `pi-hot-compact`, `pi-context-prune`. None of them touches the
-compaction file lists, and this extension touches nothing else, so they are orthogonal.
+This fork owns native compaction and also rewrites file blocks through the `context`
+hook. Extensions operating at other stages can coexist, but check their hook ownership.
 
 `pi-zip` documents the same conclusion from its side:
 
 > An extension that only writes Pi's compaction summaries (a `session_before_compact`
 > handler) does not pause pi-zip.
 
-If you run two extensions that both rewrite compaction summaries, expect unpredictable
-results — pick one.
+Do not enable this fork alongside `pi-compaction-model`, the upstream copy, or another
+extension that supplies a `session_before_compact` result for the same event. Pi invokes
+each handler independently and uses the last override; they do not form a summary pipeline.
 
 ---
 
@@ -240,7 +268,7 @@ results — pick one.
 - **It never writes to your session file.** The `context` handler edits the summary in
   memory per turn; the `session_before_compact` handler returns a value that Pi persists
   like any hook result.
-- **No network access.** No telemetry, no fetch, no analytics.
+- **No telemetry.** Model requests use Pi's configured providers; no analytics or other network requests are added.
 - **Uninstall = full rollback.** Old summaries stay in the session file byte for byte.
 - **Failure budget.** After 2 consecutive failures it stops for the rest of the process
   and lets Pi do compaction.
@@ -271,14 +299,27 @@ results — pick one.
 
 ```bash
 npm test              # pure logic, no session data needed
-npm run test:plugin   # full hook chain against a mocked Pi (no model call)
+npm run test:plugin   # existing hook harness against a mocked Pi
+npm run test:integration # real Pi RPC + local HTTP providers; no paid model calls
 npm run privacy       # refuse to publish personal paths / session ids
-npm run check         # all three
+npm run check         # privacy + existing offline harnesses
 ```
 
 `test/plugin-load.mjs` loads the extension against a mocked `compact()` and a throwaway
 `HOME`, so it never reads the developer's own config and never calls a model. Point it at
 another copy of the package with `PLUGIN_PKG=/path/to/pkg`.
+
+`test:integration` needs Pi installed as a dependency or `PI_CODING_AGENT_CLI` pointing
+to its `dist/cli.js`. For a global npm installation in PowerShell:
+
+```powershell
+$env:PI_CODING_AGENT_CLI = Join-Path (npm root -g) '@earendil-works/pi-coding-agent/dist/cli.js'
+npm run test:integration
+```
+
+It checks model/provider routing, authentication, thinking level, output caps,
+Windows-compatible file trimming, persisted summaries, and native failure fallback.
+It creates and removes isolated fixtures without loading user settings or sessions.
 
 To measure against your own session:
 

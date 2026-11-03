@@ -40,12 +40,12 @@ something in the tens of kilobytes.
 ## 1. Install and restart
 
 ```bash
-pi install npm:@yeyudeh/pi-compaction-files
-# or: pi install git:github.com/yeyudeH/pi-compaction-files
+pi install git:github.com/Pure-island/pi-compaction-files@v0.4.0
 ```
 
-**Restart Pi.** Extensions load at process start; installing does not affect the running
-process.
+Requires Pi 1.4.0 or newer. Remove the upstream copy and `pi-compaction-model` if installed.
+Restart Pi or run `/reload`. For dedicated-model configuration, see
+[Dedicated compaction model](../README.md#dedicated-compaction-model).
 
 ## 2. Confirm it loaded and self-checked
 
@@ -153,7 +153,7 @@ reason.
 PI_FILELIST_DISABLE=1 pi
 
 # permanently
-pi remove @yeyudeh/pi-compaction-files
+pi remove git:github.com/Pure-island/pi-compaction-files@v0.4.0
 ```
 
 Nothing needs cleaning up afterwards. The extension never modified your session file, and
