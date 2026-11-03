@@ -23,16 +23,17 @@ pi install git:github.com/Pure-island/pi-compaction-files
 
 ```json
 {
-  "compactThinking": "medium"
+  "keepModified": 60,
+  "keepRead": 40
 }
 ```
 
-压缩使用当前对话模型。修改配置后执行 `/reload`。文件条数、路径过滤、输出预算等选项见
+修改后执行 `/reload`。文件条数、路径过滤和清单查询见
 [配置参考](docs/configuration.md)。
 
 ## 工作方式
 
-调用 Pi 原生的 `compact()`，由当前对话模型生成摘要，再过滤、缩短
+由 Pi 原生的 `compact()` 生成摘要，插件只过滤、缩短
 `<read-files>` 和 `<modified-files>` 清单并保存。
 已有摘要的文件清单也会在发给模型时缩短。
 

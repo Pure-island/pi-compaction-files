@@ -44,7 +44,7 @@ pi install git:github.com/Pure-island/pi-compaction-files
 ```
 
 Requires Pi 1.4.0 or newer. Remove the upstream copy and `pi-compaction-model` if installed.
-Restart Pi or run `/reload`. For thinking levels and output budgets, see the
+Restart Pi or run `/reload`. File-list options are in the
 [configuration reference](configuration.md).
 
 ## 2. Confirm it loaded and self-checked
@@ -59,7 +59,7 @@ What you want to see:
 
 ```
 enabled=true style=native keepModified=60 keepRead=40 dropMissing=true
-archiveSensitive=false tool=false indexRecent=12 failStreak=0/2
+archiveSensitive=false tool=false indexRecent=12
 pi-self-check=ok dist=/…/@earendil-works/pi-coding-agent/dist
   ok: compaction.js: fromHook inheritance guard present
   ok: session-manager.js: fromHook persisted on compaction entries
@@ -169,7 +169,7 @@ npm run test:integration
 ```
 
 The integration check runs Pi in RPC mode against a local HTTP provider. It covers use
-of the conversation model, authentication, thinking level, output caps, file-list rewriting
+of the conversation model, unchanged thinking and output limits, file-list rewriting
 and persistence. Fixtures use a temporary directory and are removed when the run ends.
 
 When Pi is installed globally, point the check at its CLI. In PowerShell:

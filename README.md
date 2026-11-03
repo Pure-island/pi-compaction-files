@@ -23,17 +23,18 @@ Create `~/.pi/pi-compaction-files.json`:
 
 ```json
 {
-  "compactThinking": "medium"
+  "keepModified": 60,
+  "keepRead": 40
 }
 ```
 
-Compaction uses the current conversation model. Reload Pi after editing the file. File counts, filters, output budgets and other options
-are in the [configuration reference](docs/configuration.md).
+Reload Pi after editing the file. File counts, path filters and inventory lookup
+are described in the [configuration reference](docs/configuration.md).
 
 ## How it works
 
-Pi's native `compact()` generates the summary with the conversation model. The extension
-then filters and caps its `<read-files>` and `<modified-files>` blocks before saving it.
+Pi's native `compact()` generates the summary. The extension only filters and caps
+its `<read-files>` and `<modified-files>` blocks before saving it.
 File lists in older summaries are also shortened when sent as conversation context.
 
 Authentication or request failures are logged and handed back to Pi's native compaction.

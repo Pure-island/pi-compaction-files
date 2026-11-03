@@ -1,6 +1,6 @@
 ---
-verified_against: bb1512a8a3f1e3add26bc3d067d12bd87d1f27a1
-verified_scope: Conversation-model compaction and request-level output budgets in extensions/index.ts
+verified_against: 7ce6b0cb3e42697ab7ac4fd103282845eabe8360
+verified_scope: File-list configuration and native summarizer passthrough in extensions/index.ts
 ---
 
 # Configuration
@@ -11,20 +11,12 @@ configuration. Default values are defined in
 [`loadConfig()`](../extensions/index.ts) and
 [`DEFAULT_OPTIONS`](../extensions/filelist.ts).
 
-## Model and thinking
+## Summary generation
 
-Compaction uses the current conversation model.
-
-| Field | Meaning |
-| --- | --- |
-| `compactThinking` | Summarization thinking level. Accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`, subject to provider support. |
-
-The same settings apply to manual, threshold and overflow compactions.
+The extension calls Pi's native `compact()` with the conversation model and thinking
+level. Focus instructions, output limits and summary prose are left unchanged.
 Pi retains responsibility for cut points and recent-message selection.
-`/compact` focus instructions are passed through to the native summarizer.
 A split-turn compaction can generate separate history and turn-prefix summaries.
-
-Each compaction logs the effective model and thinking level.
 
 ## File lists
 
@@ -51,19 +43,6 @@ For on-demand inventory lookup:
 The inventory is stored in the session entry's `details`. The context handler rewrites
 older summaries in memory when preparing model requests.
 
-## Output budgets
-
-| Field | Meaning |
-| --- | --- |
-| `outputBudgetRatio` | Target share of the conversation model's `maxTokens` for reasoning plus summary. `0` disables the target. |
-| `outputHardCapRatio` | Request-level output ceiling as a share of the conversation model's `maxTokens`. `0` retains the model's ceiling. |
-| `retryOnOverflow` | If reported output exceeds the target, retry once with tighter instructions and lower thinking. Keep the lower-usage result. |
-| `summaryMaxTokens` | Target length of the rewritten summary, estimated as characters / 4. `0` disables it. File lists are tightened first. |
-| `summaryHardTrim` | Truncate summary text when it still exceeds `summaryMaxTokens` after list tightening. This can discard task context. |
-
-Both ratios accept values from `0` to `1`. Output caps apply to a request-local model
-copy. Pi's conversation model and compaction trigger settings remain unchanged.
-
 ## Switches and diagnostics
 
 | Field or environment variable | Meaning |
@@ -80,8 +59,8 @@ native compaction. Pi resolves the conversation model's credentials before invok
 the extension.
 
 The native fallback saves its own summary. The extension's context handler still trims
-its file lists on later model requests. Consecutive compaction failures can suspend the
-hook until the extension reloads.
+its file lists on later model requests. The extension does not add its own generation
+retry or completion-path fallback.
 
 Use one extension that supplies a `session_before_compact` result for an event.
 Pi calls these handlers independently and uses the last override.
