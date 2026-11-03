@@ -1,7 +1,7 @@
 {
-  "name": "@yeyudeh/pi-compaction-files",
-  "version": "0.3.1",
-  "description": "Caps Pi's compaction file lists (<read-files>/<modified-files>): drops dead, duplicate and temp paths, hides sensitive ones, strips blocks the summarizer re-seeds into the narrative, and keeps the cost per turn constant.",
+  "name": "@pure-island/pi-compaction-files",
+  "version": "0.4.0",
+  "description": "Choose a dedicated Pi compaction model and cap file lists in the same native summarization flow.",
   "keywords": [
     "pi",
     "pi-package",
@@ -16,12 +16,12 @@
   "author": "",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yeyudeH/pi-compaction-files.git"
+    "url": "git+https://github.com/Pure-island/pi-compaction-files.git"
   },
   "bugs": {
-    "url": "https://github.com/yeyudeH/pi-compaction-files/issues"
+    "url": "https://github.com/Pure-island/pi-compaction-files/issues"
   },
-  "homepage": "https://github.com/yeyudeH/pi-compaction-files#readme",
+  "homepage": "https://github.com/Pure-island/pi-compaction-files#readme",
   "files": [
     "extensions",
     "docs",
@@ -37,7 +37,7 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-coding-agent": ">=1.4.0",
     "typebox": "*"
   },
   "devDependencies": {
@@ -47,6 +47,7 @@
     "test": "node test/harness.mjs",
     "test:session": "node test/harness.mjs",
     "test:plugin": "node test/plugin-load.mjs",
+    "test:integration": "node test/model-routing.mjs",
     "privacy": "node scripts/privacy-check.mjs",
     "check": "node scripts/privacy-check.mjs && node test/harness.mjs && node test/plugin-load.mjs"
   }

@@ -5,11 +5,9 @@
  * every summary and re-inherits them on the next compaction. In a long-running real session
  * that reached 1907 paths (~27.5k Pi-estimated tokens) injected on every turn.
  *
- * This extension does two things, and nothing else:
- *
- * 1. `session_before_compact`: it calls Pi's own `compact()` (so the summary text
- *    is produced exactly as Pi would produce it), then replaces the file blocks in
- *    the returned summary with a skills-style index. Because the result comes from
+ * 1. `session_before_compact`: it calls Pi's own `compact()` with an optional
+ *    dedicated model, thinking level, and output budget, then replaces the file
+ *    blocks in the returned summary with capped native lists or an index. Because the result comes from
  *    a hook, Pi persists `fromHook: true`, which stops the next compaction from
  *    inheriting the old lists (`compaction.js:21`) — the snowball breaks at source.
  *    The full lists are kept in the entry's `details`, which Pi never renders.
@@ -38,6 +36,7 @@ import { join } from "node:path";
 import {
 	DEFAULT_OPTIONS,
 	hasFileBlocks,
+	normalizePath,
 	pathMatchesAny,
 	piTokens,
 	realFs,
@@ -56,16 +55,15 @@ interface Config extends FileListOptions {
 	archiveSensitive: boolean;
 	/** Explicit Pi dist/ dir for the self-check (usually unnecessary). */
 	piDistDir?: string;
-	/** Thinking level for the summarisation request itself. Pi would otherwise reuse the
-	 *  session's level, and reasoning competes with the summary for the same output budget
-	 *  (Pi caps that request at 0.8*reserveTokens). Default "medium". */
+	/** Optional provider/model reference; absent or null uses the active model. */
+	compactModel?: string | null;
+	/** Thinking level for summarisation, independent of the conversation. */
 	compactThinking: string;
-	/** Fraction of Pi's own output ceiling (0.8*reserveTokens) that the whole summarisation
+	/** Fraction of the selected model's output ceiling that the whole summarisation
 	 *  reply — reasoning plus summary — should stay inside. Default 0.8; 0 disables. */
 	outputBudgetRatio: number;
-	/** Lower the ceiling the inference server enforces for this request to this share of Pi's
-	 *  own cap (0.8*reserveTokens), so reasoning+summary can never reach it. Default 0.9;
-	 *  0 leaves Pi's ceiling untouched. */
+	/** Request-local output ceiling as a share of the selected model's maxTokens.
+	 *  Default 0.9; 0 leaves the model's ceiling untouched. */
 	outputHardCapRatio: number;
 	/** When the reply used more than the budget, redo it once with tighter instructions and
 	 *  one step lower thinking. Cheaper than Pi's full compact-and-retry. Default true. */
@@ -125,6 +123,7 @@ function loadConfig(): Config {
 			tool: raw.tool === true,
 			archiveSensitive: raw.archiveSensitive === true,
 			piDistDir: typeof raw.piDistDir === "string" && raw.piDistDir ? raw.piDistDir : undefined,
+			compactModel: raw.compactModel,
 			compactThinking: THINKING_LEVELS.includes(String(raw.compactThinking)) ? String(raw.compactThinking) : base.compactThinking,
 			outputBudgetRatio: typeof raw.outputBudgetRatio === "number" && raw.outputBudgetRatio >= 0 && raw.outputBudgetRatio <= 1
 				? raw.outputBudgetRatio
@@ -156,12 +155,6 @@ function log(msg: string): void {
 
 /** Cap the archived inventory so the session file cannot grow without bound. */
 const MAX_ARCHIVED = 4000;
-
-function norm(p: string, cwd: string): string {
-	const t = p.trim();
-	if (!t) return t;
-	return t.startsWith("/") ? t : `${cwd.replace(/\/+$/, "")}/${t}`;
-}
 
 /** Newest-first union, deduped, capped. Reports how many entries were dropped. */
 function mergeLists(primary: string[], secondary: string[]): { list: string[]; overflow: number } {
@@ -245,8 +238,6 @@ export default function (pi: ExtensionAPI) {
 	// ---- 1. Shrink every future compaction at the source -------------------
 	pi.on("session_before_compact", async (event, ctx: ExtensionContext) => {
 		if (!config.enabled) return {};
-		const model = ctx.model;
-		if (!model) return {};
 		if (failStreak >= MAX_FAIL_STREAK) {
 			if (!failStreakLogged) {
 				log(`${failStreak} consecutive failures; leaving compaction to Pi until a Pi restart`);
@@ -255,46 +246,45 @@ export default function (pi: ExtensionAPI) {
 			return {};
 		}
 		try {
+			let model = ctx.model;
+			const reference = config.compactModel;
+			if (reference != null && reference !== "") {
+				// 只按第一个斜杠拆分，模型 ID 本身可以带命名空间。
+				const match = typeof reference === "string" ? /^([^/\s]+)\/(\S+)$/.exec(reference.trim()) : null;
+				if (!match) {
+					log(`invalid compactModel '${String(reference)}'; expected provider/model; leaving compaction to Pi`);
+					return {};
+				}
+				model = ctx.modelRegistry.find(match[1], match[2]);
+				if (!model) {
+					log(`model not found: ${reference}; leaving compaction to Pi`);
+					return {};
+				}
+			}
+			if (!model) return {};
 			const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 			if (!auth || auth.ok !== true) {
-				log(`no auth for ${model.provider}/${model.id}; leaving compaction to Pi`);
+				log(`no auth for ${model.provider}/${model.id}: ${auth && !auth.ok ? auth.error : "unavailable"}; leaving compaction to Pi`);
 				return {};
 			}
 			const streamFn = (m: unknown, c: unknown, o: unknown) =>
-				ctx.modelRegistry.stream(m as never, c as never, o as never);
+				ctx.modelRegistry.streamSimple(m as never, c as never, o as never);
 			const modelKey = `${model.provider}/${model.id}`;
 			const preferred = streamMode.get(modelKey);
-			// Output budget: Pi caps the summarisation reply — reasoning and summary together —
-			// at 0.8*reserveTokens. On a long-running session the reply repeatedly landed within
-			// a few percent of that ceiling; one more step and it is cut off mid-summary
-			// (stopReason=length), which costs a full retry of the whole conversation. Aim below
-			// the ceiling instead of at it.
-			const reserve = Number(event.preparation?.settings?.reserveTokens) || 0;
-			const modelCap = model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY;
-			const outCap = Math.min(Math.floor(0.8 * reserve), modelCap);
+			// Pi 1.4 使用模型输出上限，不再从 reserveTokens 计算摘要额度。
+			const outCap = model.maxTokens;
 			const budget =
 				config.outputBudgetRatio > 0 && Number.isFinite(outCap) && outCap > 0
 					? Math.floor(outCap * config.outputBudgetRatio)
 					: 0;
-			// Hard ceiling: shrink the allowance handed to *this* request so the inference server
-			// itself stops at hardCap. Pi computes
-			// max_tokens = min(floor(0.8 * settings.reserveTokens), model.maxTokens), so the
-			// allowance is ceil(hardCap / 0.8). Only this call argument changes; no Pi or server
-			// configuration file is touched.
 			const hardCap =
 				config.outputHardCapRatio > 0 && Number.isFinite(outCap) && outCap > 0
 					? Math.floor(outCap * Math.min(config.outputHardCapRatio, 1))
 					: 0;
-			let hardCapApplied = 0;
-			if (hardCap > 0 && hardCap < outCap && event.preparation?.settings) {
-				const need = Math.ceil(hardCap / 0.8);
-				const before = Number(event.preparation.settings.reserveTokens) || 0;
-				if (before > need) {
-					event.preparation.settings.reserveTokens = need;
-					hardCapApplied = hardCap;
-					log(`hard output cap for this request: max_tokens ${outCap} → ${hardCap} (reserveTokens ${before} → ${need})`);
-				}
-			}
+			const hardCapApplied = hardCap > 0 && hardCap < outCap ? hardCap : 0;
+			// 请求级副本同时约束 registry 和原生 completion 路径，不修改注册模型或会话配置。
+			const requestModel = hardCapApplied > 0 ? { ...model, maxTokens: hardCapApplied } : model;
+			log(`compact(${event.reason}) model=${modelKey} thinking=${config.compactThinking} maxTokens=${requestModel.maxTokens}`);
 			// The soft budget must stay under the hard line; otherwise the model gets truncated
 			// instead of finishing with headroom.
 			const effBudget = hardCapApplied > 0 && budget >= hardCapApplied ? Math.floor(hardCapApplied * 0.9) : budget;
@@ -316,7 +306,7 @@ export default function (pi: ExtensionAPI) {
 			const doCompact = (useStream: boolean, focusText: string, thinking: string) =>
 				compact(
 					event.preparation,
-					model,
+					requestModel,
 					auth.apiKey,
 					auth.headers,
 					focusText || undefined,
@@ -377,15 +367,15 @@ export default function (pi: ExtensionAPI) {
 			// rendered list, so enabling the session_files tool cannot surface them.
 			const desensitise = (list: string[]): { list: string[]; hidden: number } => {
 				if (config.archiveSensitive) return { list, hidden: 0 };
-				const kept = list.filter((p) => !pathMatchesAny(norm(p, ctx.cwd), config.sensitivePatterns));
+				const kept = list.filter((p) => !pathMatchesAny(normalizePath(p, ctx.cwd), config.sensitivePatterns));
 				return { list: kept, hidden: list.length - kept.length };
 			};
 			const mergedModifiedRaw = mergeLists(fullModified, prev.modified);
 			const mergedModified = { list: desensitise(mergedModifiedRaw.list).list, overflow: mergedModifiedRaw.overflow };
 			const archivedHidden = desensitise(mergedModifiedRaw.list).hidden;
-			const modifiedSet = new Set(mergedModified.list.map((p) => norm(p, ctx.cwd)));
+			const modifiedSet = new Set(mergedModified.list.map((p) => normalizePath(p, ctx.cwd)));
 			const mergedReadRaw = mergeLists(
-				fullRead.filter((p) => !modifiedSet.has(norm(p, ctx.cwd))),
+				fullRead.filter((p) => !modifiedSet.has(normalizePath(p, ctx.cwd))),
 				prev.modified.concat(prev.read),
 			);
 			const readDes = desensitise(mergedReadRaw.list);
@@ -448,6 +438,7 @@ export default function (pi: ExtensionAPI) {
 					summaryOver: over > 0 ? over : 0,
 					summaryHardTrim: config.summaryHardTrim,
 					listsTightenedTo: tightened.length ? tightened[tightened.length - 1] : null,
+					compactModel: modelKey,
 					compactThinking: config.compactThinking,
 					outputUsed: used,
 					outputBudget: effBudget,
@@ -588,7 +579,7 @@ export default function (pi: ExtensionAPI) {
 		handler: async (_args: string, ctx) => {
 			const lines = [
 				`enabled=${config.enabled} style=${config.style} keepModified=${config.keepModified} keepRead=${config.keepRead} dropMissing=${config.dropMissing}`,
-				`compactThinking=${config.compactThinking} outputBudgetRatio=${config.outputBudgetRatio} outputHardCapRatio=${config.outputHardCapRatio} retryOnOverflow=${config.retryOnOverflow} summaryMaxTokens=${config.summaryMaxTokens} summaryHardTrim=${config.summaryHardTrim}`,
+				`compactModel=${config.compactModel || (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "(no active model)")} compactThinking=${config.compactThinking} outputBudgetRatio=${config.outputBudgetRatio} outputHardCapRatio=${config.outputHardCapRatio} retryOnOverflow=${config.retryOnOverflow} summaryMaxTokens=${config.summaryMaxTokens} summaryHardTrim=${config.summaryHardTrim}`,
 				`archiveSensitive=${config.archiveSensitive} tool=${config.tool} indexRecent=${config.indexRecent} failStreak=${failStreak}/${MAX_FAIL_STREAK}`,
 				`exclude=[${config.excludePatterns.join(", ")}]`,
 				`cache=${cache.size} streamMode=[${[...streamMode.entries()].map(([m, s]) => `${m}:${s}`).join(", ")}]`,

@@ -84,7 +84,7 @@ for (const f of files) {
 // tarball contents
 if (existsSync(join(root, "package.json"))) {
 	try {
-		const out = execSync("npm pack --dry-run --json", { cwd: root, encoding: "utf8" });
+		const out = execSync("npm pack --dry-run --json", { cwd: root, encoding: "utf8", windowsHide: true });
 		const parsed = JSON.parse(out);
 		const list = (Array.isArray(parsed) ? parsed[0] : parsed).files || [];
 		const bad = list.filter((f) => /(^|\/)\.(pi|cache|config)|node_modules|\.env|\.jsonl|privacy-extra/.test(f.path));

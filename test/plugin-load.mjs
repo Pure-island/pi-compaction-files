@@ -48,6 +48,7 @@ const FIXTURE_CONFIG = {
 };
 writeFileSync(join(fakeHome, ".pi", "pi-compaction-files.json"), JSON.stringify(FIXTURE_CONFIG));
 process.env.HOME = fakeHome;
+process.env.PI_COMPACTION_FILES_CONFIG = join(fakeHome, ".pi", "pi-compaction-files.json");
 
 // ---- real files to anchor dropMissing -------------------------------------
 const realA = join(pkg, "extensions", "filelist.ts");
@@ -131,10 +132,10 @@ ok("注册了 /filelist 命令", typeof commands.filelist?.handler === "function
 // ---- compaction hook ------------------------------------------------------
 function makeCtx(branch) {
 	return {
-		model: { provider: "mock", id: "m1" },
+		model: { provider: "mock", id: "m1", maxTokens: 4000 },
 		modelRegistry: {
 			getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "k", headers: {}, env: {} }),
-			stream: async () => {
+			streamSimple: async () => {
 				throw new Error("no stream in test");
 			},
 		},

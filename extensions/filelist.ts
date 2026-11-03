@@ -20,6 +20,7 @@
  */
 
 import { existsSync, statSync } from "node:fs";
+import { posix, win32 } from "node:path";
 
 export interface FileListOptions {
 	/**
@@ -151,10 +152,10 @@ export function extractFileLists(summary: string): {
 
 /** Pi stores cwd-relative paths next to absolute ones; make them comparable. */
 export function normalizePath(raw: string, cwd: string): string {
-	const p = raw.trim();
+	const p = raw.trim().replace(/\\/g, "/");
 	if (!p) return p;
-	if (p.startsWith("/")) return p;
-	return `${cwd.replace(/\/+$/, "")}/${p}`;
+	if (win32.isAbsolute(p)) return win32.normalize(p).replace(/\\/g, "/");
+	return posix.normalize(`${cwd.replace(/\\/g, "/").replace(/\/+$/, "")}/${p}`);
 }
 
 export interface FsProbe {

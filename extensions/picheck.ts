@@ -15,7 +15,7 @@
 
 import { createRequire } from "node:module";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, isAbsolute, join } from "node:path";
 
 export interface PiCheck {
 	ok: boolean;
@@ -74,10 +74,10 @@ export function locatePiDist(explicit?: string): string | undefined {
 	// 3. follow the launcher on PATH (pi's bin is a symlink into dist/bundle/cli.js)
 	const argv0 = (process.argv[1] || process.argv[0] || "").trim();
 	const names = [argv0, "pi"].filter(Boolean);
-	const pathDirs = (process.env.PATH || "").split(":").filter(Boolean);
+	const pathDirs = (process.env.PATH || "").split(delimiter).filter(Boolean);
 	const tried = new Set<string>();
 	for (const name of names) {
-		const cands = name.includes("/") ? [name] : pathDirs.map((d) => join(d, name));
+		const cands = isAbsolute(name) ? [name] : pathDirs.map((d) => join(d, name));
 		for (const c of cands) {
 			if (tried.has(c) || !isFile(c)) continue;
 			tried.add(c);
@@ -95,6 +95,7 @@ export function locatePiDist(explicit?: string): string | undefined {
 		"/usr/local/lib/node_modules",
 		"/usr/lib/node_modules",
 		join(process.env.HOME || "", ".pi/agent/npm/node_modules"),
+		...(process.env.APPDATA ? [join(process.env.APPDATA, "npm", "node_modules")] : []),
 	]) {
 		const p = join(root, "@earendil-works", "pi-coding-agent", "dist");
 		if (isFile(join(p, "core", "compaction", "compaction.js"))) return p;
