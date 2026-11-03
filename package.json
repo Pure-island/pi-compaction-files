@@ -1,7 +1,7 @@
 {
   "name": "@pure-island/pi-compaction-files",
-  "version": "0.4.0",
-  "description": "Choose a dedicated Pi compaction model and cap file lists in the same native summarization flow.",
+  "version": "0.5.0",
+  "description": "Cap file lists in Pi compaction summaries using the conversation model.",
   "keywords": [
     "pi",
     "pi-package",
@@ -47,7 +47,7 @@
     "test": "node test/harness.mjs",
     "test:session": "node test/harness.mjs",
     "test:plugin": "node test/plugin-load.mjs",
-    "test:integration": "node test/model-routing.mjs",
+    "test:integration": "node test/compaction.mjs",
     "privacy": "node scripts/privacy-check.mjs",
     "check": "node scripts/privacy-check.mjs && node test/harness.mjs && node test/plugin-load.mjs"
   }

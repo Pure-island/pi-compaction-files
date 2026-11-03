@@ -5,8 +5,8 @@
  * every summary and re-inherits them on the next compaction. In a long-running real session
  * that reached 1907 paths (~27.5k Pi-estimated tokens) injected on every turn.
  *
- * 1. `session_before_compact`: it calls Pi's own `compact()` with an optional
- *    dedicated model, thinking level, and output budget, then replaces the file
+ * 1. `session_before_compact`: it calls Pi's own `compact()` with the conversation
+ *    model, a thinking level, and an output budget, then replaces the file
  *    blocks in the returned summary with capped native lists or an index. Because the result comes from
  *    a hook, Pi persists `fromHook: true`, which stops the next compaction from
  *    inheriting the old lists (`compaction.js:21`) — the snowball breaks at source.
@@ -55,14 +55,12 @@ interface Config extends FileListOptions {
 	archiveSensitive: boolean;
 	/** Explicit Pi dist/ dir for the self-check (usually unnecessary). */
 	piDistDir?: string;
-	/** Optional provider/model reference; absent or null uses the active model. */
-	compactModel?: string | null;
 	/** Thinking level for summarisation, independent of the conversation. */
 	compactThinking: string;
-	/** Fraction of the selected model's output ceiling that the whole summarisation
+	/** Fraction of the conversation model's output ceiling that the whole summarisation
 	 *  reply — reasoning plus summary — should stay inside. Default 0.8; 0 disables. */
 	outputBudgetRatio: number;
-	/** Request-local output ceiling as a share of the selected model's maxTokens.
+	/** Request-local output ceiling as a share of the conversation model's maxTokens.
 	 *  Default 0.9; 0 leaves the model's ceiling untouched. */
 	outputHardCapRatio: number;
 	/** When the reply used more than the budget, redo it once with tighter instructions and
@@ -123,7 +121,6 @@ function loadConfig(): Config {
 			tool: raw.tool === true,
 			archiveSensitive: raw.archiveSensitive === true,
 			piDistDir: typeof raw.piDistDir === "string" && raw.piDistDir ? raw.piDistDir : undefined,
-			compactModel: raw.compactModel,
 			compactThinking: THINKING_LEVELS.includes(String(raw.compactThinking)) ? String(raw.compactThinking) : base.compactThinking,
 			outputBudgetRatio: typeof raw.outputBudgetRatio === "number" && raw.outputBudgetRatio >= 0 && raw.outputBudgetRatio <= 1
 				? raw.outputBudgetRatio
@@ -246,21 +243,7 @@ export default function (pi: ExtensionAPI) {
 			return {};
 		}
 		try {
-			let model = ctx.model;
-			const reference = config.compactModel;
-			if (reference != null && reference !== "") {
-				// 只按第一个斜杠拆分，模型 ID 本身可以带命名空间。
-				const match = typeof reference === "string" ? /^([^/\s]+)\/(\S+)$/.exec(reference.trim()) : null;
-				if (!match) {
-					log(`invalid compactModel '${String(reference)}'; expected provider/model; leaving compaction to Pi`);
-					return {};
-				}
-				model = ctx.modelRegistry.find(match[1], match[2]);
-				if (!model) {
-					log(`model not found: ${reference}; leaving compaction to Pi`);
-					return {};
-				}
-			}
+			const model = ctx.model;
 			if (!model) return {};
 			const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 			if (!auth || auth.ok !== true) {
@@ -438,7 +421,6 @@ export default function (pi: ExtensionAPI) {
 					summaryOver: over > 0 ? over : 0,
 					summaryHardTrim: config.summaryHardTrim,
 					listsTightenedTo: tightened.length ? tightened[tightened.length - 1] : null,
-					compactModel: modelKey,
 					compactThinking: config.compactThinking,
 					outputUsed: used,
 					outputBudget: effBudget,
@@ -579,7 +561,7 @@ export default function (pi: ExtensionAPI) {
 		handler: async (_args: string, ctx) => {
 			const lines = [
 				`enabled=${config.enabled} style=${config.style} keepModified=${config.keepModified} keepRead=${config.keepRead} dropMissing=${config.dropMissing}`,
-				`compactModel=${config.compactModel || (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "(no active model)")} compactThinking=${config.compactThinking} outputBudgetRatio=${config.outputBudgetRatio} outputHardCapRatio=${config.outputHardCapRatio} retryOnOverflow=${config.retryOnOverflow} summaryMaxTokens=${config.summaryMaxTokens} summaryHardTrim=${config.summaryHardTrim}`,
+				`compactThinking=${config.compactThinking} outputBudgetRatio=${config.outputBudgetRatio} outputHardCapRatio=${config.outputHardCapRatio} retryOnOverflow=${config.retryOnOverflow} summaryMaxTokens=${config.summaryMaxTokens} summaryHardTrim=${config.summaryHardTrim}`,
 				`archiveSensitive=${config.archiveSensitive} tool=${config.tool} indexRecent=${config.indexRecent} failStreak=${failStreak}/${MAX_FAIL_STREAK}`,
 				`exclude=[${config.excludePatterns.join(", ")}]`,
 				`cache=${cache.size} streamMode=[${[...streamMode.entries()].map(([m, s]) => `${m}:${s}`).join(", ")}]`,

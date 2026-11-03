@@ -16,18 +16,13 @@ import { createInterface } from "node:readline";
 const pkg = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
 const cli = process.env.PI_CODING_AGENT_CLI || join(dirname(require.resolve("@earendil-works/pi-coding-agent")), "cli.js");
-const root = mkdtempSync(join(tmpdir(), "pi-model-routing-"));
+const root = mkdtempSync(join(tmpdir(), "pi-compaction-"));
 const requests = [];
 const server = createServer(async (req, res) => {
 	let body = "";
 	for await (const chunk of req) body += chunk;
 	const payload = JSON.parse(body);
 	requests.push({ url: req.url, authorization: req.headers.authorization, payload });
-	if (req.url.startsWith("/broken/")) {
-		res.writeHead(400, { "content-type": "application/json" });
-		res.end(JSON.stringify({ error: { message: "fixture provider failure", type: "invalid_request_error" } }));
-		return;
-	}
 	const text = "## Goal\nKeep the task and its current decisions.\n\n" +
 		`<modified-files>\n${root}/kept-a.ts\n${root}/kept-b.ts\n${root}/secret.txt\n${root}/deleted.ts\n</modified-files>`;
 	res.writeHead(200, { "content-type": "text/event-stream" });
@@ -50,18 +45,15 @@ function provider(route, key, id, maxTokens) {
 	};
 }
 
-async function runCase(name, compactModel, expectedModel, warning) {
-	if (process.argv.length > 2 && !process.argv.slice(2).includes(name)) return;
+async function runCase() {
+	const name = "active";
 	const cwd = join(root, name);
 	const agent = join(cwd, "agent");
 	mkdirSync(agent, { recursive: true });
 	const configFile = join(cwd, "filelist.json");
-	writeFileSync(configFile, JSON.stringify({ compactModel, compactThinking: "low", keepModified: 1, keepRead: 1, sensitivePatterns: ["/secret"], excludePatterns: [], retryOnOverflow: false }));
+	writeFileSync(configFile, JSON.stringify({ compactThinking: "low", keepModified: 1, keepRead: 1, sensitivePatterns: ["/secret"], excludePatterns: [], retryOnOverflow: false }));
 	writeFileSync(join(agent, "models.json"), JSON.stringify({ providers: {
 		active: provider("active", "active-key", "conversation", 4000),
-		summary: provider("summary", "summary-key", "namespace/summarizer", 2000),
-		broken: provider("broken", "broken-key", "failed", 2000),
-		noauth: { ...provider("noauth", undefined, "unauthorized", 2000), authHeader: true },
 	} }));
 	writeFileSync(join(agent, "settings.json"), JSON.stringify({ compaction: { enabled: true, reserveTokens: 4000, keepRecentTokens: 2000 }, retry: { enabled: false }, quietStartup: true }));
 	const timestamp = new Date().toISOString();
@@ -100,29 +92,20 @@ async function runCase(name, compactModel, expectedModel, warning) {
 		assert(saved, `${name}: compaction must be persisted`);
 		assert(saved.summary.includes("## Goal"));
 		const sent = requests.slice(start);
-		const successes = sent.filter((record) => !record.url.startsWith("/broken/"));
-		assert.equal(successes.length, 1, `${name}: expected one successful summarization, got ${sent.map((r) => r.payload.model).join(", ")}`);
-		const call = successes[0];
-		assert.equal(call.payload.model, expectedModel);
-		if (warning) assert(stderr.includes(warning), `${name}: missing warning ${warning}\n${stderr}`);
-		if (!warning) {
-			const target = expectedModel !== "conversation";
-			assert.equal(sent.length, 1, `${name}: no duplicate summary request`);
-			assert.equal(call.authorization, `Bearer ${target ? "summary-key" : "active-key"}`);
-			assert.equal(call.url, `/${target ? "summary" : "active"}/v1/chat/completions`);
-			assert.equal(call.payload.max_tokens, Math.floor((target ? 2000 : 4000) * 0.9));
-			assert.equal(call.payload.reasoning_effort, "low");
-			assert.equal(saved.fromHook, true);
-			assert.equal(saved.details.fileListIndex.compactModel, target ? "summary/namespace/summarizer" : "active/conversation");
-			assert.equal(saved.details.fileListIndex.keptModified, 1);
-			assert.equal(saved.details.fileListIndex.outputCap, target ? 2000 : 4000);
-			assert(!saved.summary.includes("secret.txt"));
-			assert(!saved.summary.includes("deleted.ts"));
-			assert(saved.summary.includes("kept-"), "existing Windows paths must survive filtering");
-			assert.equal(saved.details.fileListIndex.blocksFound, 1);
-		} else {
-			assert(!saved.fromHook, `${name}: native fallback must own the result`);
-		}
+		assert.equal(sent.length, 1, `${name}: no duplicate summary request`);
+		const call = sent[0];
+		assert.equal(call.payload.model, "conversation");
+		assert.equal(call.authorization, "Bearer active-key");
+		assert.equal(call.url, "/active/v1/chat/completions");
+		assert.equal(call.payload.max_tokens, Math.floor(4000 * 0.9));
+		assert.equal(call.payload.reasoning_effort, "low");
+		assert.equal(saved.fromHook, true);
+		assert.equal(saved.details.fileListIndex.keptModified, 1);
+		assert.equal(saved.details.fileListIndex.outputCap, 4000);
+		assert(!saved.summary.includes("secret.txt"));
+		assert(!saved.summary.includes("deleted.ts"));
+		assert(saved.summary.includes("kept-"), "existing Windows paths must survive filtering");
+		assert.equal(saved.details.fileListIndex.blocksFound, 1);
 		console.log(`PASS ${name}: ${sent.length} request(s), model=${call.payload.model}, fromHook=${!!saved.fromHook}`);
 	} finally {
 		lines.close();
@@ -134,12 +117,7 @@ async function runCase(name, compactModel, expectedModel, warning) {
 
 try {
 	for (const name of ["kept-a.ts", "kept-b.ts", "secret.txt"]) writeFileSync(join(root, name), "fixture");
-	await runCase("dedicated", "summary/namespace/summarizer", "namespace/summarizer", null);
-	await runCase("active", undefined, "conversation", null);
-	await runCase("invalid", "bad-reference", "conversation", "invalid compactModel");
-	await runCase("unknown", "missing/unknown", "conversation", "model not found");
-	await runCase("noauth", "noauth/unauthorized", "conversation", "no auth");
-	await runCase("failed", "broken/failed", "conversation", "compaction hook failed");
+	await runCase();
 } finally {
 	server.closeAllConnections();
 	await new Promise((done) => server.close(done));

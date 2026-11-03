@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0]
+
+### Removed
+- Dedicated compaction-model selection (`compactModel`). Compaction now always uses
+  the current conversation model. Remove this field from existing configuration files.
+- Dedicated-model routing checks and model-selection metadata in saved summaries.
+
+File-list rewriting, inventory lookup, thinking levels, output budgets, native fallback
+and Windows compatibility are unchanged.
+
 ## [0.4.0]
 
 ### Added
