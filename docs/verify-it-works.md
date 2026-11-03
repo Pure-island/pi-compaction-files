@@ -45,7 +45,7 @@ pi install git:github.com/Pure-island/pi-compaction-files@v0.4.0
 
 Requires Pi 1.4.0 or newer. Remove the upstream copy and `pi-compaction-model` if installed.
 Restart Pi or run `/reload`. For dedicated-model configuration, see
-[Dedicated compaction model](../README.md#dedicated-compaction-model).
+[Model and thinking](configuration.md#model-and-thinking).
 
 ## 2. Confirm it loaded and self-checked
 
@@ -158,3 +158,26 @@ pi remove git:github.com/Pure-island/pi-compaction-files@v0.4.0
 
 Nothing needs cleaning up afterwards. The extension never modified your session file, and
 summaries it produced are ordinary Pi compaction entries.
+
+## Automated checks
+
+Run from the repository root:
+
+```bash
+npm install --ignore-scripts --legacy-peer-deps
+npm run test:integration
+```
+
+The integration check runs Pi in RPC mode against local HTTP providers. It covers model
+routing, authentication, thinking level, output caps, file-list rewriting, persistence
+and native fallback. Fixtures use a temporary directory and are removed when the run ends.
+
+When Pi is installed globally, point the check at its CLI. In PowerShell:
+
+```powershell
+$env:PI_CODING_AGENT_CLI = Join-Path (npm root -g) '@earendil-works/pi-coding-agent/dist/cli.js'
+npm run test:integration
+```
+
+For the existing offline harnesses, use `npm test` and `npm run test:plugin`.
+`npm run privacy` checks published files for private paths and session identifiers.
