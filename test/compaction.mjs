@@ -51,7 +51,7 @@ async function runCase() {
 	const agent = join(cwd, "agent");
 	mkdirSync(agent, { recursive: true });
 	const configFile = join(cwd, "filelist.json");
-	writeFileSync(configFile, JSON.stringify({ compactThinking: "low", keepModified: 1, keepRead: 1, sensitivePatterns: ["/secret"], excludePatterns: [], retryOnOverflow: false }));
+	writeFileSync(configFile, JSON.stringify({ keepModified: 1, keepRead: 1, sensitivePatterns: ["/secret"], excludePatterns: [] }));
 	writeFileSync(join(agent, "models.json"), JSON.stringify({ providers: {
 		active: provider("active", "active-key", "conversation", 4000),
 	} }));
@@ -67,7 +67,7 @@ async function runCase() {
 	const session = join(cwd, "fixture.jsonl");
 	writeFileSync(session, [{ type: "session", version: 3, id: name, cwd, timestamp }, ...messages].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
 	const start = requests.length;
-	const child = spawn(process.execPath, [cli, "--mode", "rpc", "--provider", "active", "--model", "conversation", "--thinking", "off", "--session", session, "--no-extensions", "-e", pkg, "--no-mcp", "--no-skills", "--no-context-files", "--no-prompt-templates", "--offline", "--no-approve"], {
+	const child = spawn(process.execPath, [cli, "--mode", "rpc", "--provider", "active", "--model", "conversation", "--thinking", "high", "--session", session, "--no-extensions", "-e", pkg, "--no-mcp", "--no-skills", "--no-context-files", "--no-prompt-templates", "--offline", "--no-approve"], {
 		cwd, env: { ...process.env, PI_CODING_AGENT_DIR: agent, PI_COMPACTION_FILES_CONFIG: configFile, PI_OFFLINE: "1" }, windowsHide: true, stdio: ["pipe", "pipe", "pipe"],
 	});
 	let stderr = "";
@@ -97,11 +97,12 @@ async function runCase() {
 		assert.equal(call.payload.model, "conversation");
 		assert.equal(call.authorization, "Bearer active-key");
 		assert.equal(call.url, "/active/v1/chat/completions");
-		assert.equal(call.payload.max_tokens, Math.floor(4000 * 0.9));
-		assert.equal(call.payload.reasoning_effort, "low");
+		assert.equal(call.payload.max_tokens, 4000);
+		assert.equal(call.payload.reasoning_effort, "high");
+		assert(!JSON.stringify(call.payload.messages).includes("Hard limit: your ENTIRE reply"));
+		assert(!JSON.stringify(call.payload.messages).includes("The summary text itself should stay under"));
 		assert.equal(saved.fromHook, true);
 		assert.equal(saved.details.fileListIndex.keptModified, 1);
-		assert.equal(saved.details.fileListIndex.outputCap, 4000);
 		assert(!saved.summary.includes("secret.txt"));
 		assert(!saved.summary.includes("deleted.ts"));
 		assert(saved.summary.includes("kept-"), "existing Windows paths must survive filtering");

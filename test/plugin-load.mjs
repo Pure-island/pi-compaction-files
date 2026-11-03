@@ -60,10 +60,8 @@ writeFileSync(secret, "x"); // exists, but must be stripped from the archive
 
 // ---- mock Pi's compact() --------------------------------------------------
 let compactCalls = [];
-const fakeCompact = async (prep, model, key, headers, ci, signal, thinking, streamFn) => {
-	compactCalls.push({ stream: streamFn !== undefined });
-	if (fakeCompact.throwMode === "always") throw new Error("compact exploded");
-	if (fakeCompact.throwMode === "stream" && streamFn !== undefined) throw new Error("stream path broken");
+const fakeCompact = async () => {
+	compactCalls.push({});
 	return fakeCompact.result;
 };
 
@@ -111,6 +109,7 @@ const hooks = {};
 const tools = [];
 const commands = {};
 const pi = {
+	getThinkingLevel: () => "low",
 	on(name, fn) {
 		hooks[name] = fn;
 	},
@@ -165,7 +164,6 @@ fakeCompact.result = {
 
 console.log("\n[2] 正文里嵌入的旧块会被剥掉并合并");
 compactCalls = [];
-fakeCompact.throwMode = "none";
 let res = await hooks.session_before_compact(
 	{ preparation: {}, customInstructions: undefined, signal: undefined, reason: "manual" },
 	makeCtx([]),
@@ -200,24 +198,6 @@ const res2 = await hooks.session_before_compact(
 );
 ok("第二次输出与第一次一致", res2.compaction.summary === first, `${first.length} -> ${res2.compaction.summary.length}`);
 
-console.log("\n[5] 降级：stream 路径失败时只回退一次，并记住模式");
-fakeCompact.throwMode = "stream";
-compactCalls = [];
-const res3 = await hooks.session_before_compact(
-	{ preparation: {}, customInstructions: undefined, signal: undefined, reason: "manual" },
-	makeCtx([]),
-);
-ok("回退后成功", !!res3.compaction);
-ok("这次调了 2 次（stream 失败 + default）", compactCalls.length === 2, JSON.stringify(compactCalls));
-compactCalls = [];
-const res4 = await hooks.session_before_compact(
-	{ preparation: {}, customInstructions: undefined, signal: undefined, reason: "manual" },
-	makeCtx([]),
-);
-ok("记住了 default 模式，之后只调 1 次", compactCalls.length === 1, JSON.stringify(compactCalls));
-ok("之后不再走 stream", compactCalls.length === 1 && compactCalls[0].stream === false, JSON.stringify(compactCalls));
-ok("结果仍然有效", !!res4.compaction && res4.compaction.summary.includes("## Goal"));
-
 console.log("\n[9] 用本会话真实 compaction 数据跑完整钩子（不调模型）");
 const SESS = process.env.PI_TEST_SESSION;
 if (!SESS || !existsSync(SESS)) {
@@ -237,7 +217,6 @@ if (!SESS || !existsSync(SESS)) {
 		console.log("      (没有 compaction 条目，跳过)");
 	} else {
 		const realCfg = JSON.parse(readFileSync(join(fakeHome, ".pi", "pi-compaction-files.json"), "utf-8"));
-		fakeCompact.throwMode = "none";
 		// 往真实存档里插两条敏感形态路径，验证它们不会进入新存档
 		//（本会话最后一条真实存档本身不含敏感项，不插就测不出脱敏）。
 		const poisonRead = [join(pkg, "private", "测试.png")];
@@ -272,18 +251,6 @@ if (!SESS || !existsSync(SESS)) {
 		console.log(`      真实 summary ${last.summary.length} -> ${rr.summary.length} B；存档 ${(last.details?.readFiles?.length || 0) + (last.details?.modifiedFiles?.length || 0)} -> ${rArch.length} 条（剔掉 ${rr.details.fileListIndex.archiveHidden} 条敏感）`);
 	}
 }
-
-console.log("\n[6] 失败预算：连续失败后不再尝试，交回 Pi");
-fakeCompact.throwMode = "always";
-compactCalls = [];
-const r1 = await hooks.session_before_compact({ preparation: {}, reason: "manual" }, makeCtx([]));
-ok("第 1 次失败返回 {}（Pi 接管）", r1 && Object.keys(r1).length === 0);
-const r2 = await hooks.session_before_compact({ preparation: {}, reason: "manual" }, makeCtx([]));
-ok("第 2 次失败返回 {}", r2 && Object.keys(r2).length === 0);
-const callsSoFar = compactCalls.length;
-const r3 = await hooks.session_before_compact({ preparation: {}, reason: "manual" }, makeCtx([]));
-ok("第 3 次不再调用 compact", compactCalls.length === callsSoFar, `calls ${callsSoFar} -> ${compactCalls.length}`);
-ok("第 3 次仍返回 {}", r3 && Object.keys(r3).length === 0);
 
 console.log("\n[7] context 钩子：把已存的脏 summary 就地洗短");
 const msg = { role: "compactionSummary", summary: SUMMARY };

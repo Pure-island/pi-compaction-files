@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0]
+
+### Removed
+- Independent summarization thinking levels, output budgets, hard caps, overflow
+  retries, summary-text truncation, completion-path probing and failure counters.
+- The related configuration fields and saved generation-budget metadata.
+
+The extension only filters, caps, archives and looks up file lists. It uses Pi's
+native summary generator with the conversation's model and thinking level, passes
+through focus instructions and leaves summary prose and output limits unchanged.
+
 ## [0.5.0]
 
 ### Removed

@@ -1,7 +1,7 @@
 {
   "name": "@pure-island/pi-compaction-files",
-  "version": "0.5.0",
-  "description": "Cap file lists in Pi compaction summaries using the conversation model.",
+  "version": "0.6.0",
+  "description": "Filter and cap file lists in Pi compaction summaries.",
   "keywords": [
     "pi",
     "pi-package",
