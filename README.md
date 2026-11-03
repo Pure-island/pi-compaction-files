@@ -1,6 +1,6 @@
 # pi-compaction-files
 
-Use a dedicated model for Pi's conversation compaction and keep the summary's file lists short.
+Keep file lists short in Pi's conversation compaction summaries.
 
 [中文](README.zh.md)
 
@@ -23,23 +23,20 @@ Create `~/.pi/pi-compaction-files.json`:
 
 ```json
 {
-  "compactModel": "openai-codex/gpt-6.1-sol",
   "compactThinking": "medium"
 }
 ```
 
-Use a model from your Pi registry. Omitting `compactModel` uses the conversation model.
-Reload Pi after editing the file. File counts, filters, output budgets and other options
+Compaction uses the current conversation model. Reload Pi after editing the file. File counts, filters, output budgets and other options
 are in the [configuration reference](docs/configuration.md).
 
 ## How it works
 
-Pi's native `compact()` generates the summary with the selected model. The extension
+Pi's native `compact()` generates the summary with the conversation model. The extension
 then filters and caps its `<read-files>` and `<modified-files>` blocks before saving it.
 File lists in older summaries are also shortened when sent as conversation context.
 
-Model selection, authentication or request failures are logged and handed back to Pi's
-native compaction with the conversation model. That model also needs valid credentials.
+Authentication or request failures are logged and handed back to Pi's native compaction.
 
 ## Development
 

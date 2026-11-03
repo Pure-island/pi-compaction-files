@@ -40,12 +40,12 @@ something in the tens of kilobytes.
 ## 1. Install and restart
 
 ```bash
-pi install git:github.com/Pure-island/pi-compaction-files@v0.4.0
+pi install git:github.com/Pure-island/pi-compaction-files
 ```
 
 Requires Pi 1.4.0 or newer. Remove the upstream copy and `pi-compaction-model` if installed.
-Restart Pi or run `/reload`. For dedicated-model configuration, see
-[Model and thinking](configuration.md#model-and-thinking).
+Restart Pi or run `/reload`. For thinking levels and output budgets, see the
+[configuration reference](configuration.md).
 
 ## 2. Confirm it loaded and self-checked
 
@@ -153,7 +153,7 @@ reason.
 PI_FILELIST_DISABLE=1 pi
 
 # permanently
-pi remove git:github.com/Pure-island/pi-compaction-files@v0.4.0
+pi remove git:github.com/Pure-island/pi-compaction-files
 ```
 
 Nothing needs cleaning up afterwards. The extension never modified your session file, and
@@ -168,9 +168,9 @@ npm install --ignore-scripts --legacy-peer-deps
 npm run test:integration
 ```
 
-The integration check runs Pi in RPC mode against local HTTP providers. It covers model
-routing, authentication, thinking level, output caps, file-list rewriting, persistence
-and native fallback. Fixtures use a temporary directory and are removed when the run ends.
+The integration check runs Pi in RPC mode against a local HTTP provider. It covers use
+of the conversation model, authentication, thinking level, output caps, file-list rewriting
+and persistence. Fixtures use a temporary directory and are removed when the run ends.
 
 When Pi is installed globally, point the check at its CLI. In PowerShell:
 
